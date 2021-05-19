@@ -5,13 +5,22 @@
 package conddb // import "github.com/go-lpc/mim/conddb"
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"math"
 	"strconv"
+	"strings"
 )
 
 const (
 	numASICs = math.MaxUint8
+
+	nRFM        = 4
+	nHR         = 8
+	nBitsCfgHR  = 872
+	nBytesCfgHR = 109
+	nChans      = 64
 )
 
 type ASIC struct {
@@ -56,10 +65,6 @@ type ASIC struct {
 }
 
 func (asic ASIC) HRConfig() []byte {
-	const (
-		nHR         = 8
-		nBytesCfgHR = 109
-	)
 	var (
 		buf = make([]byte, nHR*nBytesCfgHR)
 		i   = 0
@@ -77,10 +82,6 @@ func (asic ASIC) HRConfig() []byte {
 }
 
 func (asic *ASIC) FromHRConfig(buf []byte) error {
-	const (
-		nHR         = 8
-		nBytesCfgHR = 109
-	)
 	if got, want := len(buf), nHR*nBytesCfgHR; got != want {
 		return fmt.Errorf("conddb: invalid ASIC hr-config buffer length (got=%d, want=%d)", got, want)
 	}
@@ -113,8 +114,6 @@ func (asic *ASIC) FromHRConfig(buf []byte) error {
 // }
 
 func (asic ASIC) marshal(o func(v uint8)) error {
-	const nChans = 64
-
 	// 871
 	o(asicEnOcDout1b)
 	o(asicEnOcDout2b)
@@ -278,8 +277,6 @@ func (asic ASIC) marshal(o func(v uint8)) error {
 }
 
 func (asic *ASIC) unmarshal(o func() uint8) error {
-	const nChans = 64
-
 	// 871
 	_ = o() // asicEnOcDout1b
 	_ = o() // asicEnOcDout2b
@@ -557,3 +554,464 @@ const (
 	asicCmdB3ss       = 0x0
 	asicPowerOnPreAmp = 0x1
 )
+
+func NewASICFromCSVs(delta uint32, conf, thresh, pagain, mask io.Reader) (ASIC, error) {
+	var (
+		asic ASIC
+		err  error
+
+		floor [nRFM * nHR * 3]uint32
+		gains [nRFM * nHR * nChans]uint32
+		table [nRFM * nHR * nChans]uint32
+	)
+
+	err = asic.hrscReadConf(conf, 0)
+	if err != nil {
+		return asic, fmt.Errorf("conddb: could not read HRSC config: %w", err)
+	}
+
+	err = asic.readThOffset(thresh, floor[:])
+	if err != nil {
+		return asic, fmt.Errorf("conddb: could not read floor thresholds: %w", err)
+	}
+
+	err = asic.readPreAmpGain(pagain, gains[:])
+	if err != nil {
+		return asic, fmt.Errorf("conddb: could not read preamplifier gains: %w", err)
+	}
+
+	err = asic.readMask(mask, table[:])
+	if err != nil {
+		return asic, fmt.Errorf("conddb: could not read masks: %w", err)
+	}
+
+	err = asic.initHRFromCSV(delta, floor[:], gains[:], table[:])
+	if err != nil {
+		return asic, fmt.Errorf("conddb: could not initialize from CSV: %w", err)
+	}
+
+	return asic, err
+}
+
+func (asic *ASIC) hrscReadConf(f io.Reader, hr uint32) error {
+	var (
+		addr uint32
+		bit  uint32
+		cnt  = uint32(nBitsCfgHR - 1)
+		sc   = bufio.NewScanner(f)
+		line int
+		data = asic.HRConfig()
+		err  error
+	)
+
+	for sc.Scan() {
+		line++
+		txt := strings.TrimSpace(sc.Text())
+		if strings.HasPrefix(txt, "#") {
+			continue
+		}
+		toks := strings.Split(txt, ";")
+
+		if len(toks) != 5 {
+			return fmt.Errorf("conddb: invalid config file:%d: line=%q", line, txt)
+		}
+		v, err := strconv.ParseUint(toks[0], 10, 32)
+		if err != nil {
+			return fmt.Errorf("conddb: could not parse address %q in %q: %w", toks[0], txt, err)
+		}
+		addr = uint32(v)
+
+		v, err = strconv.ParseUint(toks[4], 10, 32)
+		if err != nil {
+			return fmt.Errorf("conddb: could not parse bit %q in %q: %w", toks[4], txt, err)
+		}
+		bit = uint32(v)
+
+		if addr != cnt {
+			return fmt.Errorf(
+				"conddb: invalid bit address line:%d: got=0x%x, want=0x%x",
+				line, addr, cnt,
+			)
+		}
+		cnt--
+
+		hrscSetBit(data, hr, addr, bit)
+		if addr == 0 {
+			return asic.FromHRConfig(data)
+		}
+	}
+	err = sc.Err()
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("conddb: could not scan config file: %w", err)
+	}
+
+	return fmt.Errorf("conddb: reached end of config file before last bit")
+}
+
+func (asic *ASIC) readThOffset(f io.Reader, floor []uint32) error {
+	var (
+		scan = bufio.NewScanner(f)
+		line int
+		rfm  uint32
+		hr   uint32
+		err  error
+	)
+
+	for scan.Scan() {
+		line++
+		txt := strings.TrimSpace(scan.Text())
+		if strings.HasPrefix(txt, "#") || txt == "" {
+			continue
+		}
+		toks := strings.Split(txt, ";")
+		if len(toks) != 5 {
+			return fmt.Errorf(
+				"conddb: invalid threshold offsets file:%d: line=%q",
+				line, txt,
+			)
+		}
+		v, err := strconv.ParseUint(toks[0], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse RFM id %q (line:%d): %w",
+				toks[0], line, err,
+			)
+		}
+		if uint32(v) != rfm {
+			return fmt.Errorf(
+				"conddb: invalid RFM id=%d (line:%d), want=%d",
+				v, line, rfm,
+			)
+		}
+
+		v, err = strconv.ParseUint(toks[1], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse HR id %q (line:%d): %w",
+				toks[1], line, err,
+			)
+		}
+		if uint32(v) != hr {
+			return fmt.Errorf(
+				"conddb: invalid HR id=%d (line:%d), want=%d",
+				v, line, hr,
+			)
+		}
+
+		v, err = strconv.ParseUint(toks[2], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse threshold value dac0 for (RFM=%d,HR=%d) (line:%d:%q): %w",
+				rfm, hr, line, toks[2], err,
+			)
+		}
+		floor[3*(nHR*rfm+hr)+0] = uint32(v)
+
+		v, err = strconv.ParseUint(toks[3], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse threshold value dac1 for (RFM=%d,HR=%d) (line:%d:%q): %w",
+				rfm, hr, line, toks[3], err,
+			)
+		}
+		floor[3*(nHR*rfm+hr)+1] = uint32(v)
+
+		v, err = strconv.ParseUint(toks[4], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse threshold value dac2 for (RFM=%d,HR=%d) (line:%d:%q): %w",
+				rfm, hr, line, toks[4], err,
+			)
+		}
+		floor[3*(nHR*rfm+hr)+2] = uint32(v)
+
+		hr++
+		if hr >= nHR {
+			hr = 0
+			rfm++
+		}
+	}
+
+	err = scan.Err()
+	if err != nil {
+		return fmt.Errorf("conddb: error while parsing threshold offsets: %w", err)
+	}
+
+	return nil
+}
+
+func (asic *ASIC) readPreAmpGain(f io.Reader, gains []uint32) error {
+	var (
+		scan = bufio.NewScanner(f)
+		line int
+		rfm  uint32
+		hr   uint32
+		ch   uint32
+		err  error
+	)
+
+	for scan.Scan() {
+		line++
+		txt := strings.TrimSpace(scan.Text())
+		if strings.HasPrefix(txt, "#") || txt == "" {
+			continue
+		}
+		toks := strings.Split(txt, ";")
+		if len(toks) != 4 {
+			return fmt.Errorf(
+				"conddb: invalid preamp-gain file:%d: line=%q",
+				line, txt,
+			)
+		}
+
+		v, err := strconv.ParseUint(toks[0], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse RFM id %q (line:%d): %w",
+				toks[0], line, err,
+			)
+		}
+		if uint32(v) != rfm {
+			return fmt.Errorf(
+				"conddb: invalid RFM id=%d (line:%d), want=%d",
+				v, line, rfm,
+			)
+		}
+
+		v, err = strconv.ParseUint(toks[1], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse HR id %q (line:%d): %w",
+				toks[1], line, err,
+			)
+		}
+		if uint32(v) != hr {
+			return fmt.Errorf(
+				"conddb: invalid HR id=%d (line:%d), want=%d",
+				v, line, hr,
+			)
+		}
+
+		v, err = strconv.ParseUint(toks[2], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse chan %q (line:%d): %w",
+				toks[2], line, err,
+			)
+		}
+		if uint32(v) != ch {
+			return fmt.Errorf(
+				"conddb: invalid chan id=%d (line:%d), want=%d",
+				v, line, ch,
+			)
+		}
+
+		v, err = strconv.ParseUint(toks[3], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse gain for (RFM=%d,HR=%d,ch=%d) (line:%d:%q): %w",
+				rfm, hr, ch, line, toks[3], err,
+			)
+		}
+		gains[nChans*(nHR*rfm+hr)+ch] = uint32(v)
+		ch++
+
+		if ch >= nChans {
+			ch = 0
+			hr++
+		}
+		if hr >= nHR {
+			hr = 0
+			rfm++
+		}
+	}
+
+	err = scan.Err()
+	if err != nil {
+		return fmt.Errorf("conddb: error while parsing preamp-gains: %w", err)
+	}
+
+	return nil
+}
+
+func (asic *ASIC) readMask(f io.Reader, table []uint32) error {
+	var (
+		scan = bufio.NewScanner(f)
+		line int
+		rfm  uint32
+		hr   uint32
+		ch   uint32
+		err  error
+	)
+
+	for scan.Scan() {
+		line++
+		txt := strings.TrimSpace(scan.Text())
+		if strings.HasPrefix(txt, "#") || txt == "" {
+			continue
+		}
+		toks := strings.Split(txt, ";")
+		if len(toks) != 4 {
+			return fmt.Errorf(
+				"conddb: invalid mask file:%d: line=%q",
+				line, txt,
+			)
+		}
+
+		v, err := strconv.ParseUint(toks[0], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse RFM id %q (line:%d): %w",
+				toks[0], line, err,
+			)
+		}
+		if uint32(v) != rfm {
+			return fmt.Errorf(
+				"conddb: invalid RFM id=%d (line:%d), want=%d",
+				v, line, rfm,
+			)
+		}
+
+		v, err = strconv.ParseUint(toks[1], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse HR id %q (line:%d): %w",
+				toks[1], line, err,
+			)
+		}
+		if uint32(v) != hr {
+			return fmt.Errorf(
+				"conddb: invalid HR id=%d (line:%d), want=%d",
+				v, line, hr,
+			)
+		}
+
+		v, err = strconv.ParseUint(toks[2], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse chan %q (line:%d): %w",
+				toks[2], line, err,
+			)
+		}
+		if uint32(v) != ch {
+			return fmt.Errorf(
+				"conddb: invalid chan id=%d (line:%d), want=%d",
+				v, line, ch,
+			)
+		}
+
+		v, err = strconv.ParseUint(toks[3], 10, 32)
+		if err != nil {
+			return fmt.Errorf(
+				"conddb: could not parse mask for (RFM=%d,HR=%d,ch=%d) (line:%d:%q): %w",
+				rfm, hr, ch, line, toks[3], err,
+			)
+		}
+		table[nChans*(nHR*rfm+hr)+ch] = uint32(v)
+		ch++
+
+		if ch >= nChans {
+			ch = 0
+			hr++
+		}
+		if hr >= nHR {
+			hr = 0
+			rfm++
+		}
+	}
+
+	err = scan.Err()
+	if err != nil {
+		return fmt.Errorf("conddb: error while parsing masks: %w", err)
+	}
+
+	return nil
+}
+
+func (dev *ASIC) initHRFromCSV(delta uint32, floor, gains, table []uint32) error {
+	data := dev.HRConfig()
+
+	for rfm := 0; rfm < nRFM; rfm++ {
+		// mask unused channels
+		for hr := uint32(0); hr < nHR; hr++ {
+			for ch := uint32(0); ch < nChans; ch++ {
+				mask := table[nChans*(nHR*uint32(rfm)+hr)+ch]
+				hrscSetMask(data, hr, ch, mask)
+			}
+		}
+
+		// set DAC thresholds
+		for hr := uint32(0); hr < nHR; hr++ {
+			th0 := floor[3*(nHR*uint32(rfm)+hr)+0] + delta
+			th1 := floor[3*(nHR*uint32(rfm)+hr)+1] + delta
+			th2 := floor[3*(nHR*uint32(rfm)+hr)+2] + delta
+			hrscSetDAC0(data, hr, th0)
+			hrscSetDAC1(data, hr, th1)
+			hrscSetDAC2(data, hr, th2)
+		}
+
+		// set preamplifier gain
+		for hr := uint32(0); hr < nHR; hr++ {
+			for ch := uint32(0); ch < nChans; ch++ {
+				gain := gains[nChans*hr+ch]
+				hrscSetPreAmp(data, hr, ch, gain)
+			}
+		}
+	}
+
+	return dev.FromHRConfig(data)
+}
+
+func div(num, den uint32) (quo, rem uint32) {
+	quo = num / den
+	rem = num % den
+	return quo, rem
+}
+
+func hrscSetPreAmp(data []byte, hr, ch, v uint32) {
+	addr := nChans + nHR*ch
+	hrscSetWord(data, hr, addr, 8, v)
+}
+
+func hrscSetMask(data []byte, hr, ch, v uint32) {
+	addr := 618 + 3*ch
+	hrscSetWord(data, hr, addr, 3, v)
+}
+
+func hrscSetDAC0(data []byte, hr, v uint32) {
+	hrscSetWord(data, hr, 818, 10, v)
+}
+
+func hrscSetDAC1(data []byte, hr, v uint32) {
+	hrscSetWord(data, hr, 828, 10, v)
+}
+func hrscSetDAC2(data []byte, hr, v uint32) {
+	hrscSetWord(data, hr, 838, 10, v)
+}
+
+func hrscSetWord(data []byte, hr, addr, nbits, v uint32) {
+	for i := uint32(0); i < nbits; i++ {
+		// scan LSB to MSB
+		bit := (v >> i) & 0x01
+		hrscSetBit(data, hr, addr+i, bit)
+	}
+}
+
+func hrscSetBit(data []byte, hr, addr, bit uint32) {
+	// byte address 0 corresponds to the last register (addr 864 to 871)
+	// of the last Hardroc (pos=nHR-1)
+	var (
+		quo, rem = div(addr, nHR)
+
+		i   = (nHR-1-hr)*nBytesCfgHR + nBytesCfgHR - 1 - quo
+		v   = data[i]
+		off = rem
+
+		// bit address increases from LSB to MSB
+		mask1 = uint8(0x01 << off)
+		mask2 = uint8((0x1 & bit) << off)
+	)
+	v &= ^mask1 // reset target bit
+	v |= mask2  // set target bit = "bit" argument
+	data[i] = v
+}
