@@ -359,74 +359,50 @@ func (dev *Device) readMask(fname string) error {
 }
 
 func (dev *Device) bindLwH2F() error {
-	dev.regs.pio.state = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_STATE_IN)
-	dev.regs.pio.ctrl = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CTRL_OUT)
-	dev.regs.pio.pulser = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_PULSER)
+	dev.regs.pio.state = newReg32(dev.mem.lw, regs.LW_H2F_PIO_STATE_IN)
+	dev.regs.pio.ctrl = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CTRL_OUT)
+	dev.regs.pio.pulser = newReg32(dev.mem.lw, regs.LW_H2F_PIO_PULSER)
 
-	dev.regs.ramSC[0] = newHRCfg(dev, dev.mem.lw, regs.LW_H2F_RAM_SC_RFM0)
-	dev.regs.ramSC[1] = newHRCfg(dev, dev.mem.lw, regs.LW_H2F_RAM_SC_RFM1)
-	dev.regs.ramSC[2] = newHRCfg(dev, dev.mem.lw, regs.LW_H2F_RAM_SC_RFM2)
-	dev.regs.ramSC[3] = newHRCfg(dev, dev.mem.lw, regs.LW_H2F_RAM_SC_RFM3)
+	dev.regs.ramSC[0] = newHRCfg(dev.mem.lw, regs.LW_H2F_RAM_SC_RFM0)
+	dev.regs.ramSC[1] = newHRCfg(dev.mem.lw, regs.LW_H2F_RAM_SC_RFM1)
+	dev.regs.ramSC[2] = newHRCfg(dev.mem.lw, regs.LW_H2F_RAM_SC_RFM2)
+	dev.regs.ramSC[3] = newHRCfg(dev.mem.lw, regs.LW_H2F_RAM_SC_RFM3)
 
-	dev.regs.pio.chkSC[0] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_SC_CHECK_RFM0)
-	dev.regs.pio.chkSC[1] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_SC_CHECK_RFM1)
-	dev.regs.pio.chkSC[2] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_SC_CHECK_RFM2)
-	dev.regs.pio.chkSC[3] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_SC_CHECK_RFM3)
+	dev.regs.pio.chkSC[0] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_SC_CHECK_RFM0)
+	dev.regs.pio.chkSC[1] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_SC_CHECK_RFM1)
+	dev.regs.pio.chkSC[2] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_SC_CHECK_RFM2)
+	dev.regs.pio.chkSC[3] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_SC_CHECK_RFM3)
 
-	dev.regs.pio.cntHit0[0] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT0_RFM0)
-	dev.regs.pio.cntHit0[1] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT0_RFM1)
-	dev.regs.pio.cntHit0[2] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT0_RFM2)
-	dev.regs.pio.cntHit0[3] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT0_RFM3)
+	dev.regs.pio.cntHit0[0] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT0_RFM0)
+	dev.regs.pio.cntHit0[1] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT0_RFM1)
+	dev.regs.pio.cntHit0[2] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT0_RFM2)
+	dev.regs.pio.cntHit0[3] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT0_RFM3)
 
-	dev.regs.pio.cntHit1[0] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT1_RFM0)
-	dev.regs.pio.cntHit1[1] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT1_RFM1)
-	dev.regs.pio.cntHit1[2] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT1_RFM2)
-	dev.regs.pio.cntHit1[3] = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT1_RFM3)
+	dev.regs.pio.cntHit1[0] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT1_RFM0)
+	dev.regs.pio.cntHit1[1] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT1_RFM1)
+	dev.regs.pio.cntHit1[2] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT1_RFM2)
+	dev.regs.pio.cntHit1[3] = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT_HIT1_RFM3)
 
-	dev.regs.pio.cntTrig = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT_TRIG)
-	dev.regs.pio.cnt48MSB = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT48_MSB)
-	dev.regs.pio.cnt48LSB = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT48_LSB)
-	dev.regs.pio.cnt24 = newReg32(dev, dev.mem.lw, regs.LW_H2F_PIO_CNT24)
+	dev.regs.pio.cntTrig = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT_TRIG)
+	dev.regs.pio.cnt48MSB = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT48_MSB)
+	dev.regs.pio.cnt48LSB = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT48_LSB)
+	dev.regs.pio.cnt24 = newReg32(dev.mem.lw, regs.LW_H2F_PIO_CNT24)
 
 	return dev.err
 }
 
 func (dev *Device) bindH2F() error {
-	dev.regs.fifo.daq[0] = newReg32(dev, dev.mem.h2f, regs.H2F_FIFO_DAQ_RFM0)
-	dev.regs.fifo.daq[1] = newReg32(dev, dev.mem.h2f, regs.H2F_FIFO_DAQ_RFM1)
-	dev.regs.fifo.daq[2] = newReg32(dev, dev.mem.h2f, regs.H2F_FIFO_DAQ_RFM2)
-	dev.regs.fifo.daq[3] = newReg32(dev, dev.mem.h2f, regs.H2F_FIFO_DAQ_RFM3)
+	dev.regs.fifo.daq[0] = newReg32(dev.mem.h2f, regs.H2F_FIFO_DAQ_RFM0)
+	dev.regs.fifo.daq[1] = newReg32(dev.mem.h2f, regs.H2F_FIFO_DAQ_RFM1)
+	dev.regs.fifo.daq[2] = newReg32(dev.mem.h2f, regs.H2F_FIFO_DAQ_RFM2)
+	dev.regs.fifo.daq[3] = newReg32(dev.mem.h2f, regs.H2F_FIFO_DAQ_RFM3)
 
-	dev.regs.fifo.daqCSR[0] = newDAQFIFO(dev, dev.mem.h2f, regs.H2F_FIFO_DAQ_CSR_RFM0)
-	dev.regs.fifo.daqCSR[1] = newDAQFIFO(dev, dev.mem.h2f, regs.H2F_FIFO_DAQ_CSR_RFM1)
-	dev.regs.fifo.daqCSR[2] = newDAQFIFO(dev, dev.mem.h2f, regs.H2F_FIFO_DAQ_CSR_RFM2)
-	dev.regs.fifo.daqCSR[3] = newDAQFIFO(dev, dev.mem.h2f, regs.H2F_FIFO_DAQ_CSR_RFM3)
+	dev.regs.fifo.daqCSR[0] = newDAQFIFO(dev.mem.h2f, regs.H2F_FIFO_DAQ_CSR_RFM0)
+	dev.regs.fifo.daqCSR[1] = newDAQFIFO(dev.mem.h2f, regs.H2F_FIFO_DAQ_CSR_RFM1)
+	dev.regs.fifo.daqCSR[2] = newDAQFIFO(dev.mem.h2f, regs.H2F_FIFO_DAQ_CSR_RFM2)
+	dev.regs.fifo.daqCSR[3] = newDAQFIFO(dev.mem.h2f, regs.H2F_FIFO_DAQ_CSR_RFM3)
 
 	return dev.err
-}
-
-func (dev *Device) readU32(r io.ReaderAt, off int64) uint32 {
-	if dev.err != nil {
-		return 0
-	}
-	_, dev.err = r.ReadAt(dev.buf[:4], off)
-	if dev.err != nil {
-		dev.err = fmt.Errorf("eda: could not read register 0x%x: %w", off, dev.err)
-		return 0
-	}
-	return binary.LittleEndian.Uint32(dev.buf[:4])
-}
-
-func (dev *Device) writeU32(w io.WriterAt, off int64, v uint32) {
-	if dev.err != nil {
-		return
-	}
-	binary.LittleEndian.PutUint32(dev.buf[:4], v)
-	_, dev.err = w.WriteAt(dev.buf[:4], off)
-	if dev.err != nil {
-		dev.err = fmt.Errorf("eda: could not write register 0x%x: %w", off, dev.err)
-		return
-	}
 }
 
 func (dev *Device) rfmOn(rfm int) error {

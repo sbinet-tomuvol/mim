@@ -5,75 +5,78 @@
 package eda
 
 import (
-	"fmt"
 	"io"
+	"unsafe"
 
 	"github.com/go-lpc/mim/eda/internal/regs"
 )
 
+func unsafeAdd(ptr unsafe.Pointer, n int) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(ptr) + uintptr(n))
+}
+
+func unsafeSlice(ptr *byte, n int) []byte {
+	return (*[4 + nHR*nBytesCfgHR]byte)(unsafe.Pointer(ptr))[:n]
+}
+
 type rwer interface {
 	io.ReaderAt
 	io.WriterAt
+	Bytes() []byte
 }
 
 type reg32 struct {
-	r func() uint32
-	w func(v uint32)
+	ptr *uint32
+	r   func() uint32
+	w   func(v uint32)
 }
 
-func newReg32(dev *Device, rw rwer, offset int64) reg32 {
-	return reg32{
-		r: func() uint32 {
-			return dev.readU32(rw, offset)
-		},
-		w: func(v uint32) {
-			dev.writeU32(rw, offset, v)
-		},
-	}
+func newReg32(rw rwer, offset int64) reg32 {
+	raw := rw.Bytes()
+	ptr := unsafe.Pointer(&raw[offset])
+	reg := reg32{ptr: (*uint32)(ptr)}
+	reg.r = reg.rImpl
+	reg.w = reg.wImpl
+	return reg
 }
+
+func (x *reg32) rImpl() uint32  { return *x.ptr }
+func (x *reg32) wImpl(v uint32) { *x.ptr = v }
 
 type hrCfg struct {
-	rw   rwer
-	addr int64
-	size int64
+	ptr unsafe.Pointer
 }
 
-func newHRCfg(dev *Device, rw rwer, offset int64) hrCfg {
-	return hrCfg{
-		rw:   rw,
-		addr: offset,
-		size: 4 + nHR*nBytesCfgHR,
-	}
+func newHRCfg(rw rwer, offset int64) hrCfg {
+	raw := rw.Bytes()
+	ptr := unsafe.Pointer(&raw[offset])
+	return hrCfg{ptr}
 }
 
 func (hr *hrCfg) r(i int) byte {
-	buf := make([]byte, 1)
-	_, err := hr.rw.ReadAt(buf, hr.addr+int64(i))
-	if err != nil {
-		panic(fmt.Errorf("could not read HR cfg at addr=0x%x + %d: %+v", hr.addr, i, err))
-	}
-	return buf[0]
+	ptr := unsafeAdd(hr.ptr, i)
+	return *(*byte)(ptr)
 }
 
 func (hr *hrCfg) w(p []byte) (int, error) {
-	n, err := hr.rw.WriteAt(p, hr.addr)
-	return int(n), err
+	n := copy(unsafeSlice((*byte)(hr.ptr), len(p)), p)
+	return n, nil
 }
 
 type daqFIFO struct {
 	pins [6]reg32
 }
 
-func newDAQFIFO(dev *Device, rw rwer, offset int64) daqFIFO {
-	const sz = 4 // sizeof(uint32)
+func newDAQFIFO(rw rwer, offset int64) daqFIFO {
+	const sz = int64(unsafe.Sizeof(uint32(0)))
 	return daqFIFO{
 		pins: [6]reg32{
-			newReg32(dev, rw, offset+sz*regs.ALTERA_AVALON_FIFO_LEVEL_REG),
-			newReg32(dev, rw, offset+sz*regs.ALTERA_AVALON_FIFO_STATUS_REG),
-			newReg32(dev, rw, offset+sz*regs.ALTERA_AVALON_FIFO_EVENT_REG),
-			newReg32(dev, rw, offset+sz*regs.ALTERA_AVALON_FIFO_IENABLE_REG),
-			newReg32(dev, rw, offset+sz*regs.ALTERA_AVALON_FIFO_ALMOSTFULL_REG),
-			newReg32(dev, rw, offset+sz*regs.ALTERA_AVALON_FIFO_ALMOSTEMPTY_REG),
+			newReg32(rw, offset+sz*regs.ALTERA_AVALON_FIFO_LEVEL_REG),
+			newReg32(rw, offset+sz*regs.ALTERA_AVALON_FIFO_STATUS_REG),
+			newReg32(rw, offset+sz*regs.ALTERA_AVALON_FIFO_EVENT_REG),
+			newReg32(rw, offset+sz*regs.ALTERA_AVALON_FIFO_IENABLE_REG),
+			newReg32(rw, offset+sz*regs.ALTERA_AVALON_FIFO_ALMOSTFULL_REG),
+			newReg32(rw, offset+sz*regs.ALTERA_AVALON_FIFO_ALMOSTEMPTY_REG),
 		},
 	}
 }

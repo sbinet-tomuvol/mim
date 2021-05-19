@@ -852,7 +852,6 @@ func TestDAQSendDIFData(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dev := &Device{
 				msg: log.New(ioutil.Discard, "eda: ", 0),
-				buf: make([]byte, 4),
 			}
 			sck := tc.conn()
 			dev.daq.rfm = []rfmSink{

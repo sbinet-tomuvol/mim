@@ -28,6 +28,8 @@ func HandleFrom(data []byte) *Handle {
 	return h
 }
 
+func (h *Handle) Bytes() []byte { return h.data }
+
 // Close closes the mmap handle.
 func (h *Handle) Close() error {
 	if h == nil {

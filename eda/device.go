@@ -67,7 +67,6 @@ type Device struct {
 	dir string
 
 	err  error
-	buf  []byte
 	regs struct {
 		pio struct {
 			state  reg32
@@ -128,7 +127,6 @@ func newDevice(devmem, odir, devshm string, opts ...Option) (*Device, error) {
 	dev := &Device{
 		msg: log.New(os.Stdout, "eda: ", 0),
 		dir: odir,
-		buf: make([]byte, 4),
 		cfg: newConfig(),
 	}
 	dev.mem.fd = mem
@@ -188,7 +186,6 @@ func NewDevice(fname string, odir string, opts ...Option) (*Device, error) {
 	dev := &Device{
 		msg: log.New(os.Stdout, "eda: ", 0),
 		dir: odir,
-		buf: make([]byte, 4),
 		cfg: newConfig(),
 	}
 	dev.mem.fd = mem
